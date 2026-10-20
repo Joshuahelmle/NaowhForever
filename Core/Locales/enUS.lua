@@ -7142,3 +7142,5 @@ L["+ %d forms"] = true
 L["+ %d more bars"] = true
 L["+ 1 more bar"] = true
 L["+ pet keys"] = true
+L["Capture Scans While Button Is Hidden"] = true
+L["Keep auction prices updated from full scans started by other addons."] = true
