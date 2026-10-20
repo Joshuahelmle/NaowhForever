@@ -28,7 +28,6 @@ local TEXT_NEXT = ns.L(", next in %dm")
 local TEXT_EMPTY = ns.L("The auction house returned no listings. Try again in a moment.")
 local TEXT_WAIT = ns.L("%s: Blizzard allows one full scan every 15 minutes. Next scan in %dm.")
 local TEXT_TIMEOUT = ns.L("no answer from the auction house. A full scan can only run once every 15 minutes.")
-local TEXT_CAPTURE_RELOAD = ns.L("%s will be disabled when you reload. Reload now?")
 local TEXT_CLOSED = ns.L("scan stopped: the auction house closed.")
 local TEXT_TIP = ns.L("Reads every listing on the auction house and keeps the lowest buyout for "
     .. "each item, shown on item tooltips. Blizzard allows one full scan every 15 "
@@ -37,10 +36,10 @@ local TEXT_EACH = ns.L(" |cff808080each, %s ago|r")
 local MINUTES, HOURS, DAYS = "m", "h", "d"
 
 local button, scanning, scanGen = nil, nil, 0
+local ownScan, houseOpen, hooked
 local houseKey
 local priced, pricedAt
-local ageTicker, houseOpen
-local captureHooked, captureEnabled
+local ageTicker
 
 local function House(create)
     local account = ns.AccountSettings()
@@ -112,25 +111,8 @@ local function Stop(message)
     scanGen = scanGen + 1
     events:UnregisterEvent("REPLICATE_ITEM_LIST_UPDATE")
     Label(TEXT_SCAN)
-    if message then ns.Print(Tag() .. ": " .. message) end
-end
-
-local function BeginCapture()
-    if not houseOpen or scanning or not (S.Get("ahPrices") or S.Get("ahCaptureWhileHidden")) then return end
-    scanning = true
-    scanGen = scanGen + 1
-    local gen = scanGen
-    events:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
-    C_Timer.After(TIMEOUT, function()
-        if gen == scanGen and scanning then Stop(TEXT_TIMEOUT) end
-    end)
-end
-
-local function UpdateCaptureHook()
-    captureEnabled = S.Get("ahPrices") or S.Get("ahCaptureWhileHidden")
-    if captureHooked or not captureEnabled then return end
-    hooksecurefunc(C_AuctionHouse, "ReplicateItems", BeginCapture)
-    captureHooked = true
+    if message and ownScan then ns.Print(Tag() .. ": " .. message) end
+    ownScan = nil
 end
 
 local function ReadListing(prices, i)
@@ -175,6 +157,10 @@ local function Wait()
     return house and house.time and SCAN_COOLDOWN - (time() - house.time)
 end
 
+local function OnTimeout(gen)
+    if gen == scanGen and scanning then Stop(TEXT_TIMEOUT) end
+end
+
 local function Scan()
     if scanning then return end
     local wait = Wait()
@@ -182,10 +168,28 @@ local function Scan()
         ns.Print(TEXT_WAIT:format(Tag(), math.ceil(wait / SECONDS_PER_MINUTE)))
         return
     end
-    BeginCapture()
-    if not scanning then return end
+    scanning, ownScan = true, true
+    scanGen = scanGen + 1
+    local gen = scanGen
     Label(TEXT_SCANNING)
+    events:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
     C_AuctionHouse.ReplicateItems()
+    C_Timer.After(TIMEOUT, function() OnTimeout(gen) end)
+end
+
+local function OnReplicate()
+    if scanning or not (houseOpen and S.Get("ahCapture")) then return end
+    scanning = true
+    scanGen = scanGen + 1
+    local gen = scanGen
+    events:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
+    C_Timer.After(TIMEOUT, function() OnTimeout(gen) end)
+end
+
+local function HookReplicate()
+    if hooked or not S.Get("ahCapture") then return end
+    hooked = true
+    hooksecurefunc(C_AuctionHouse, "ReplicateItems", OnReplicate)
 end
 
 local function ButtonTip()
@@ -241,7 +245,6 @@ end
 local function OnEvent(_, event)
     if event == "AUCTION_HOUSE_SHOW" then
         houseOpen = true
-        UpdateCaptureHook()
         ShowButton()
     elseif event == "AUCTION_HOUSE_CLOSED" then
         OnClosed()
@@ -251,13 +254,8 @@ local function OnEvent(_, event)
 end
 
 local function OnSettingChanged(key)
-    if key ~= "ahPrices" and key ~= "ahCaptureWhileHidden" then return end
-    if button then button:SetShown(S.Get("ahPrices")) end
-    local wasEnabled = captureEnabled
-    UpdateCaptureHook()
-    if wasEnabled and not captureEnabled then
-        ns.ConfirmReload(TEXT_CAPTURE_RELOAD:format(ns.L("Auction Prices")))
-    end
+    if key == "ahPrices" and button then button:SetShown(S.Get("ahPrices")) end
+    if key == "ahCapture" then HookReplicate() end
 end
 
 local function OnItemTooltip(tooltip, data)
@@ -274,7 +272,7 @@ events:SetScript("OnEvent", OnEvent)
 events:RegisterEvent("AUCTION_HOUSE_SHOW")
 events:RegisterEvent("AUCTION_HOUSE_CLOSED")
 hooksecurefunc(S, "Set", OnSettingChanged)
-UpdateCaptureHook()
+HookReplicate()
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnItemTooltip)
 
 ns.Shared.Settings.Page("QoL/Loot & Items", S):Card({
@@ -288,8 +286,8 @@ ns.Shared.Settings.Page("QoL/Loot & Items", S):Card({
         { key = "ahTooltip", label = "Auction House Price", toggle = true,
           help = "Item tooltips show the item's price at your last auction house scan, for one of it, "
               .. "and how long ago that was. Scan with the Scan Prices button on the auction house." },
-        { key = "ahCaptureWhileHidden", label = "Capture Scans While Button Is Hidden", toggle = true, wide = true,
-          hidden = function() return S.Get("ahPrices") end,
-          help = "Keep auction prices updated from full scans started by other addons." },
+        { key = "ahCapture", label = "Capture Other Addons' Scans", toggle = true,
+          help = "Also keeps the prices from full auction house scans that other addons start, "
+              .. "such as Auctionator or TSM." },
     },
 })

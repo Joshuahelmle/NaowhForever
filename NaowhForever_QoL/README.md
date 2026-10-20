@@ -439,20 +439,15 @@ NaowhForever_QoL/
   bags you are looking at.
 - Auction Prices keeps one price table per auction house (realm and faction), as prices differ;
   the key is worked out once because it is read on every item tooltip.
-- Auction Prices installs a secure hook on `C_AuctionHouse.ReplicateItems` on first enable
-  of the scan button or hidden capture. Each request while the auction house is open arms
-  one result read. The reader unsubscribes before processing and stays unsubscribed after
-  completion, so late cache updates do not repeat a scan. Listening never requests a scan.
-  Secure hooks cannot be removed at runtime. Disabling the last enabled capture option requests
-  a reload through the shared reload dialog, so the next session installs no hook. Choosing Later
-  leaves only the enabled-state guard until reload; new requests are ignored immediately. Hiding
-  the button while hidden capture remains enabled needs no reload. Closing the auction house cancels unfinished reads; unanswered requests time out.
-- Scan Prices Button can be hidden if scans are done by other addons
-  With the button hidden, Capture Scans While Button Is Hidden opts back into listening and defaults off.
-  Changing either option lets an active read finish; the next request is captured only if enabled.
-- Capture handles `REPLICATE_ITEM_LIST_UPDATE` results only. Auctionator style summary-mode scans use
-  browse queries instead and are not captured. A captured replication scan updates the last-scan
-  text and the cooldown used by the Scan Prices button.
+- Capture Other Addons' Scans hooks `C_AuctionHouse.ReplicateItems` the first time it is on, so a
+  full scan another addon starts while the auction house is open is read like one from Scan Prices.
+  A secure hook cannot be removed, so the hook checks the setting on each call and turning it off
+  needs no reload. It works with the Scan Prices button hidden.
+- A captured scan updates the last-scan time and the Scan Prices cooldown, but never prints a
+  timeout, empty or closed message: we did not start it.
+- Only `REPLICATE_ITEM_LIST_UPDATE` results are read; Auctionator's summary scans use browse
+  queries and are not captured. The reader stops listening before it reads, so later cache updates
+  do not repeat a scan.
 - The Scan Prices button sits after the last auction house tab added through LibAHTab
   (Auctionator's Shopping, Selling, Cancelling and Auctionator), read from the library's
   `internalState.Tabs`, which is not public API; without it the button sits next to Auctions.

@@ -5,7 +5,7 @@ local function Check(label, value) assert(value, label); checks = checks + 1 end
 local function Noop() end
 
 local function Setup(buttonOn, captureOn, withFrame)
-    local values = { ahPrices = buttonOn, ahCaptureWhileHidden = captureOn }
+    local values = { ahPrices = buttonOn, ahCapture = captureOn }
     local account, registered, timers, messages = {}, {}, {}, {}
     local now, requests, refreshes, total = 10000, 0, 0, 1001
     local allInfo = true
@@ -25,6 +25,7 @@ local function Setup(buttonOn, captureOn, withFrame)
         Color = function(_, text) return text end,
         AccountSettings = function() return account end,
         ConfirmReload = function() reloads = reloads + 1 end,
+        GamepadStandDown = function() return false end,
         Print = function(text) messages[#messages + 1] = text end,
         ProfWindowRefresh = function() refreshes = refreshes + 1 end,
         THEME = {},
@@ -103,7 +104,7 @@ local function Setup(buttonOn, captureOn, withFrame)
     return t
 end
 
-local t = Setup(true, false, true)
+local t = Setup(true, true, true)
 t.Fire("AUCTION_HOUSE_SHOW")
 Check("enabled capture hooks once but opening does not listen or request", not t.Listening()
     and t.Requests() == 0 and t.ReplicateHooks() == 1)
@@ -134,68 +135,65 @@ t.Flush()
 t.Run(60)
 Check("manual request completes once and stale timeout is ignored", t.Refreshes() == 3 and not t.Listening())
 t.Advance(901)
+local printed = #t.messages
 t.ExternalScan()
 t.Run(60)
-Check("external unanswered request times out and unsubscribes", t.messages[#t.messages]:find("no answer", 1, true) and not t.Listening())
+Check("external unanswered request times out silently", #t.messages == printed and not t.Listening())
 t.Total(0)
 t.ExternalScan()
 t.Fire("REPLICATE_ITEM_LIST_UPDATE")
-Check("empty capture preserves prices and unsubscribes", t.ns.AuctionPrice(10) == 49 and not t.Listening())
+Check("empty capture preserves prices silently", t.ns.AuctionPrice(10) == 49 and #t.messages == printed and not t.Listening())
 t.Total(1001)
 t.ExternalScan()
 t.Fire("REPLICATE_ITEM_LIST_UPDATE")
 t.Fire("AUCTION_HOUSE_CLOSED")
 t.Flush()
-Check("closing cancels unfinished batches", t.Refreshes() == 3 and not t.Listening())
+Check("closing cancels unfinished batches silently", t.Refreshes() == 3 and #t.messages == printed and not t.Listening())
 t.ExternalScan()
 Check("closed house does not arm capture", not t.Listening())
+
+t = Setup(true, false, true)
+t.Fire("AUCTION_HOUSE_SHOW")
+Check("capture defaults install no hook", t.ReplicateHooks() == 0)
+t.ExternalScan()
+Check("button alone ignores external scans", not t.Listening())
+t.Button().click()
+Check("manual scan requests and listens", t.Requests() == 2 and t.Listening())
+t.Run(60)
+Check("manual unanswered request reports timeout", t.messages[#t.messages]:find("no answer", 1, true) and not t.Listening())
 
 t = Setup(false, false, true)
 t.Fire("AUCTION_HOUSE_SHOW")
 Check("disabled defaults install no hook", t.ReplicateHooks() == 0 and not t.Listening())
-t.ExternalScan()
-Check("disabled capture ignores external scans", not t.Listening())
-local scanButton, capture = t.card.rows[1], t.card.rows[3]
-Check("positive UI retained", scanButton.label == "Scan Prices Button" and scanButton.get == nil and scanButton.set == nil and not capture.hidden())
-t.settings.Set("ahCaptureWhileHidden", true)
+local capture = t.card.rows[3]
+Check("capture row always shown", capture.key == "ahCapture" and capture.label == "Capture Other Addons' Scans" and capture.hidden == nil)
+t.settings.Set("ahCapture", true)
 Check("first enable installs hook without arming results", t.ReplicateHooks() == 1 and not t.Listening() and not t.Button().shown)
 t.ExternalScan()
 t.Fire("REPLICATE_ITEM_LIST_UPDATE")
-t.settings.Set("ahCaptureWhileHidden", false)
+t.settings.Set("ahCapture", false)
 t.Flush()
 Check("disable during read lets it finish", t.Refreshes() == 1 and not t.Listening())
 t.ExternalScan()
 t.Fire("REPLICATE_ITEM_LIST_UPDATE")
 t.Flush()
 Check("installed hook ignores requests after disabling", t.Refreshes() == 1 and not t.Listening())
-t.settings.Set("ahPrices", true)
-t.settings.Set("ahPrices", false)
-t.settings.Set("ahCaptureWhileHidden", true)
+t.settings.Set("ahCapture", true)
 Check("reenabling does not install duplicate hooks", t.ReplicateHooks() == 1)
 t.Advance(901)
 t.ExternalScan()
 t.Fire("REPLICATE_ITEM_LIST_UPDATE")
 t.Flush()
-Check("hidden capture still works after reenabling", t.Refreshes() == 2 and not t.Button().shown)
+Check("capture works with the button hidden", t.Refreshes() == 2 and not t.Button().shown)
+t.settings.Set("ahPrices", true)
+t.settings.Set("ahPrices", false)
+t.settings.Set("ahCapture", false)
+Check("toggling never asks for a reload", t.Reloads() == 0)
 
-t = Setup(true, false, false)
+t = Setup(true, true, false)
 t.Fire("AUCTION_HOUSE_SHOW")
 t.ExternalScan()
 t.Fire("REPLICATE_ITEM_LIST_UPDATE")
 t.Flush()
 Check("capture works without visual AH frame", t.Refreshes() == 1)
-t = Setup(false, false, true)
-t.settings.Set("ahPrices", false)
-Check("never enabled capture needs no reload", t.Reloads() == 0)
-t.settings.Set("ahPrices", true)
-t.settings.Set("ahCaptureWhileHidden", true)
-t.settings.Set("ahPrices", false)
-Check("hiding button with capture enabled needs no reload", t.Reloads() == 0)
-t.settings.Set("ahCaptureWhileHidden", false)
-Check("disabling last option requests reload", t.Reloads() == 1)
-t.settings.Set("ahCaptureWhileHidden", false)
-Check("repeated disabled setting does not repeat prompt", t.Reloads() == 1)
-t.settings.Set("ahPrices", true)
-t.settings.Set("ahPrices", false)
-Check("later disable requests reload again", t.Reloads() == 2 and t.ReplicateHooks() == 1)
 print("auction prices: " .. checks .. " checks passed")
