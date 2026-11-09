@@ -25,6 +25,7 @@ local TEXT_RESULT = ns.L("Deposited %d stacks (%d items); %d marked items remain
 local TEXT_FULL = ns.L("Not enough room in your character bank; marked items were left in your bags.")
 local TEXT_HELP = ns.L("Cycle bag items through Junk, Bank and Unmarked with your marking modifier.")
 local TEXT_CLEAR = ns.L("Clear your account and current character bank marks?")
+local TEXT_SUMMARY_ONE, TEXT_SUMMARY = ns.L("%d item marked"), ns.L("%d items marked")
 
 local events, panel, bankOpen, offered, offerPending, running, timeoutPending
 local waitingID, beforeBags, beforeBank, deadline, moved
@@ -374,8 +375,20 @@ S.OnChange(function(key)
 end)
 hooksecurefunc(ns, "Apply", Apply)
 
+local function Summary()
+    local accountMarks, charMarks = AccountMarks(), CharMarks()
+    local count = 0
+    for _, marked in pairs(accountMarks) do
+        if marked == true then count = count + 1 end
+    end
+    for id, marked in pairs(charMarks) do
+        if marked == true and accountMarks[id] ~= true then count = count + 1 end
+    end
+    return (count == 1 and TEXT_SUMMARY_ONE or TEXT_SUMMARY):format(count)
+end
+
 ns.Shared.Settings.Page("QoL/Loot & Items", S):Card({
-    id = "bankMarker", name = "Bank Marker", order = 66, switch = "bankMarker", help = TEXT_HELP,
+    id = "bankMarker", name = "Bank Marker", order = 66, switch = "bankMarker", help = TEXT_HELP, summary = Summary,
     rows = {
         { key = "scrapMarkerModifier", label = "Marking Modifier", choice = MODIFIER,
           help = "Choose the key to hold when marking items." },

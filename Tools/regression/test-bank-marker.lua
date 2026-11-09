@@ -256,4 +256,11 @@ itemFamily = 4
 Fire("BANKFRAME_OPENED")
 Advance(1)
 assert(#requests == beforeCapacity + 1, "empty compatible specialty slots count as space")
+account.bankItems = { [201] = true }
+account.bankChars = { ["Player-1"] = { [201] = true, [202] = true }, ["Player-2"] = { [203] = true } }
+assert(card.summary() == "2 items marked", "summary counts distinct marks for this character")
+Bank.Clear(202)
+assert(card.summary() == "1 item marked", "summary updates when a mark is cleared")
+Bank.Clear(201)
+assert(card.summary() == "0 items marked", "summary excludes marks for other characters")
 print("test-bank-marker: passed")
