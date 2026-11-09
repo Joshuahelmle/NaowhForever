@@ -24,7 +24,8 @@ local SETTINGS = Read("Shared/Settings/Settings.lua")
 
 -- itemID -> use spell, for the food scan.
 local ITEM_SPELLS = { [13931] = 1249513, [2679] = 433, [21023] = 25660 }
-local SPELL_NAMES = { [1248406] = "Well Fed", [1249520] = "Well Fed", [1319310] = "Well Fed", [1243969] = "Well Fed XP Boost" }
+local SPELL_NAMES = { [1248406] = "Well Fed", [1249520] = "Well Fed", [1319310] = "Well Fed", [1249927] = "Well Fed",
+    [1243969] = "Well Fed XP Boost" }
 
 -- Methods (capitalised) are no-ops; an unset field reads nil, as on a real frame.
 local function Recorder(props)
@@ -113,6 +114,8 @@ local function Fixture(opts)
         buffsFont = "", buffsFontSize = 14, buffsOutline = "OUTLINE",
         raidBuffPicks = { intellect = true, stamina = true, spirit = true, wild = true, blessing = false },
         personalBuffs = true, personalBuffPicks = {}, weaponEnhancements = false, sleepingBag = false,
+        elementalAttractor = true,
+        otherBuffs = false,
         leftClickMainHand = false,
         buffGlow = false, buffGlowType = "standard", buffGlowColor = { r = 1, g = 0.82, b = 0.2 },
         buffGlowLines = 8, buffGlowThickness = 2, buffGlowSpeed = 5,
@@ -404,6 +407,17 @@ do
     Check("all up", t.Shown(), "")
 end
 
+-- A Forever tea is buff food: carried, it reminds; its Well Fed up, it does not.
+do
+    local t = Fixture({ instance = "party", bags = { 249865 }, itemSpells = { [249865] = 1249920 } })
+    t.Login()
+    Check("carried tea", t.Shown(), "item:249865")
+    t.state.auras.player = { { 1249927, 1800, 3600 } }
+    t.Fire("UNIT_AURA", "player")
+    t.Advance(0.5)
+    Check("tea's Well Fed up", t.Shown(), "")
+end
+
 -- The count keeps today's outlined Addon Font at 14 until Font, Font Size or Outline change it.
 do
     local t = Fixture({ instance = "party", bags = { 13931 } })
@@ -666,6 +680,21 @@ do
     Check("empty profile, nothing carried", t.Shown(), "")
 end
 
+-- Forever's own flasks and elixirs remind while carried, and their buffs count as a flask and an elixir.
+do
+    local t = Fixture({ settings = { personalBuffs = false }, instance = "raid",
+        bags = { 274274, 250341 } })
+    t.Login()
+    Check("a Natural flask and Greater Mageblood carried", t.Shown(), "item:274274 item:250341")
+    t.state.auras.player = { { 1293741, 7000, 7200 }, { 1250948, 1700, 1800 } }
+    t.Fire("UNIT_AURA", "player"); t.Advance(0.5)
+    Check("their buffs count", t.Shown(), "")
+    t.Set("onlyIfCarried", false)
+    t.state.bags = {}
+    t.Fire("BAG_UPDATE_DELAYED"); t.Advance(0.5)
+    Check("Only If I Carry One off: the Forever flask and elixir still count", t.Shown(), "spell:1248406")
+end
+
 -- A carried scroll reminds one stat at a time, the class buff it does not stack with counts as
 -- its buff, and a scroll you do not carry never reminds, with Only If I Carry One on or off.
 do
@@ -696,6 +725,42 @@ do
         auras = { player = { { 12178, 1700, 1800 } } } })
     t.Login()
     Check("Stamina IV up, Spirit II offered over Spirit I", t.Shown(), "item:1712")
+end
+
+-- Other Buffs: off by default. While on, a carried Dire Maul drink, Juju, Zanza or Blasted Lands item reminds one
+-- family at a time, a buff a family does not stack with counts as its own, and it follows the consumables' places.
+do
+    local KREEG, GROG, BLACK_LABEL, JUJU_POWER, SPIRIT, SWIFTNESS = 18284, 18269, 21151, 12451, 20079, 20081
+    local t = Fixture({ settings = { personalBuffs = false }, instance = "raid", bags = { KREEG } })
+    t.Login()
+    Check("off by default", t.Shown(), "")
+    t.Set("otherBuffs", true)
+    Check("on: a carried Kreeg's reminds", t.Shown(), "item:" .. KREEG)
+    t.state.auras.player = { { 22790, 800, 900 } }
+    t.Fire("UNIT_AURA", "player"); t.Advance(0.5)
+    Check("its buff up: nothing", t.Shown(), "")
+    t.state.bags = { KREEG, JUJU_POWER }
+    t.Fire("BAG_UPDATE_DELAYED"); t.Advance(0.5)
+    Check("Kreeg's up, Juju Power still reminds", t.Shown(), "item:" .. JUJU_POWER)
+    t.state.auras.player = { { 22790, 800, 900 }, { 11405, 3000, 3600 } }
+    t.Fire("UNIT_AURA", "player"); t.Advance(0.5)
+    Check("Elixir of Giants counts for Juju Power", t.Shown(), "")
+    t.state.bags = { GROG, BLACK_LABEL }
+    t.state.auras.player = { { 25804, 800, 900 } }
+    t.Fire("BAG_UPDATE_DELAYED"); t.Advance(0.5)
+    Check("one stamina drink up covers the others", t.Shown(), "")
+    t.state.bags = { SPIRIT, SWIFTNESS }
+    t.state.auras.player = { { 24383, 7000, 7200 } }
+    t.Fire("BAG_UPDATE_DELAYED"); t.Advance(0.5)
+    Check("one Zanza at a time", t.Shown(), "")
+    t.state.auras.player = {}
+    t.Fire("UNIT_AURA", "player"); t.Advance(0.5)
+    Check("no Zanza up: one reminder for the family", t.Shown(), "item:" .. SPIRIT)
+    local cell
+    for _, f in ipairs(t.frames) do if rawget(f, "items") and f.shown then cell = f end end
+    Check("its menu holds both Zanzas", table.concat(cell.items, " "), SPIRIT .. " " .. SWIFTNESS)
+    t.Set("consumablesRaid", false)
+    Check("follows the consumables' place switches", t.Shown(), "")
 end
 
 -- The built-in item offered is the highest level one you can use, with every carried one in its menu.
@@ -1876,6 +1941,41 @@ do
     r.state.weapons[17] = 1800
     r.Fire("UNIT_INVENTORY_CHANGED", "player")
     Check("both hands poisoned fades it", r.Faded(), poisons)
+end
+
+-- The Elemental Attractor or the Arcane Censer reminds while carried and Magical Awareness is missing, in the
+-- world and dungeons only, whatever the consumables' own World switch says. On by default.
+do
+    local ATTRACTOR, CENSER, AWARENESS = 281371, 275730, 1297774
+    local t = Fixture({ units = { player = "WARRIOR" }, bags = { ATTRACTOR }, settings = { personalBuffs = false } })
+    t.Login()
+    Check("on by default: carried in the world, no Magical Awareness", t.Shown(), "item:" .. ATTRACTOR)
+    t.state.auras.player = { { AWARENESS, 7000, 7200 } }
+    t.Fire("UNIT_AURA", "player"); t.Advance(0.5)
+    Check("Magical Awareness up: nothing", t.Shown(), "")
+    t.state.auras.player = { { AWARENESS, 60, 7200 } }
+    t.Fire("UNIT_AURA", "player"); t.Advance(0.5)
+    Check("under Warn With Minutes Left it reminds again, with its time", t.Shown(), "item:" .. ATTRACTOR .. "(t)")
+    t.state.auras.player = {}
+    t.state.bags = { CENSER }
+    t.Fire("BAG_UPDATE_DELAYED"); t.Advance(0.5)
+    Check("the Arcane Censer reminds too", t.Shown(), "item:" .. CENSER)
+    t.state.instance = "party"
+    t.Fire("PLAYER_ENTERING_WORLD"); t.Advance(0.5)
+    Check("in a dungeon", t.Shown(), "item:" .. CENSER)
+    t.state.instance = "raid"
+    t.Fire("PLAYER_ENTERING_WORLD"); t.Advance(0.5)
+    Check("not in a raid", t.Shown(), "")
+    t.state.instance = "pvp"
+    t.Fire("PLAYER_ENTERING_WORLD"); t.Advance(0.5)
+    Check("not in a battleground", t.Shown(), "")
+    t.state.instance = "none"
+    t.state.bags = {}
+    t.Fire("BAG_UPDATE_DELAYED"); t.Advance(0.5)
+    Check("none carried: nothing", t.Shown(), "")
+    t.state.bags = { ATTRACTOR }
+    t.Set("elementalAttractor", false)
+    Check("switched off: nothing", t.Shown(), "")
 end
 
 -- The Sleeping Bag: out in the world, below 60, while you carry it, it is ready and Well-Rested is missing or

@@ -8,9 +8,12 @@ auctioneer. Away from it, `/market` (or `/nfmarket`) or its key binding opens th
 where your Herbalism and Mining gather the most, a zone's map with every herb and vein priced, and a
 loop through it you can follow by waypoint. Last Run records each herb and vein you gather and draws
 the run's gold over time with its haul; what you really gather prices Farm's nodes. Crafts shows what your characters' known recipes make
-from your bags, priced from your last scan. Bag Worth puts what your
+from your bags, priced from your last scan at whichever of selling, disenchanting or vendoring pays
+most, and Reagents what each reagent in them goes into, in every profession, and whether crafting it
+beats selling it. Bag Worth puts what your
 bags would fetch on your bags, and item tooltips gain The Market's lines: your stack's worth, the
-price over the past week, disenchanting, who makes it and what it crafts into.
+price over the past week, disenchanting, who makes it, what it crafts into and, if you ask, the best way
+to sell it. A Compact style keeps only the auction, vendor and disenchant prices.
 Built on [`Shared/`](../Shared/README.md).
 
 ## Layout
@@ -29,8 +32,8 @@ NaowhForever_Market/
   Auctions.lua       your auctions, each checked against the listings, and cancelling (Market.Auctions)
   Buy.lua            the name and category search, the cost of a quantity, and buying (Market.Buy)
   History.lua        each item's lowest price per day from your scans, two weeks of them (Market.History)
-  Worth.lua          what your bags would fetch, and their most valuable items (Market.Worth)
-  Crafts.lua         your characters' known recipes priced, and what your bags make (Market.Crafts)
+  Worth.lua          what your bags would fetch, their most valuable items, and the best way to sell an item (Market.Worth)
+  Crafts.lua         your characters' known recipes priced at their best outlet, and what your bags make (Market.Crafts)
   Runs.lua           your gathering runs, what each node yields on average, and the pools you fish from (Market.Runs)
   Farm.lua           zones ranked for your skills, a zone's spots priced, and its loop (Market.Farm)
   Data/
@@ -48,6 +51,7 @@ NaowhForever_Market/
     Crafts.lua       the Crafts page: recipes, who knows them, materials, gains, Add to Queue
     Buy.lua          the Buy page: the Shopping List, the category and search, the listings, the buy button
     Auctions.lua     the My Auctions page: your auctions, their status, Cancel and Cancel Undercut
+    Reagents.lua     the Reagents page: Professions' Reagents list under a search
     Takeover.lua     covering Blizzard's auction house, and the way back to it
     BagWorth.lua     the Bag Worth card on your bags, and the numbers on their most valuable slots
     Tooltip.lua      The Market's lines on item tooltips
@@ -74,6 +78,9 @@ NaowhForever_Market/
 - Sell, Buy and My Auctions need the auction house, so away from it their tabs show a short "At an
   auctioneer" note instead; `/market` opens on Farm. Opening it while Blizzard's window is showing
   at an auctioneer steps back into ours instead.
+- With the Forever look, only about 27 of a rail row's 36 pixels of art are visible. A page name in the
+  heading font with that note under it is as tall as that and sat high, so the name ran over the top
+  edge. Those rows are `FOREVER_ROW_H` (48) tall, and the two lines sit `FOREVER_DROP` (3) lower.
 - Closing ours (its X or Escape) closes the auction house with `C_AuctionHouse.CloseAuctionHouse`, so
   the visit ends as Blizzard's own close does.
 - A right-click on a bag item at the auction house goes to Blizzard's `SetPostItem`. The Market hooks
@@ -81,6 +88,10 @@ NaowhForever_Market/
 - `PostCommodity`, `PostItem` and their Confirm calls need a hardware event, so a post only ever runs
   from the Post button or from Space in the window's OnKeyDown. The key is claimed with
   `SetPropagateKeyboardInput(false)` only for that press, out of combat, as the Dungeon Journal does.
+- A post's duration is the index `PostItem` and `PostCommodity` take, 1 to 3, labelled with the game's
+  own `AUCTION_DURATION_ONE` to `_THREE` as Blizzard's sell frame does. On Forever they read 2, 8 and
+  24 Hours, not retail's 12, 24 and 48. Until you pick one it is the default of Blizzard's own
+  `auctionHouseDurationDropdown` CVar (2, 8 Hours, on Forever).
 - When the game asks to confirm a post (`needsConfirmation`), it shows Blizzard's own
   `AUCTION_HOUSE_POST_WARNING`, whose Accept confirms only Blizzard's pending post. The Market hooks
   that dialog's OnAccept with `hooksecurefunc`: the hook runs inside the same click, so it can confirm
@@ -99,6 +110,16 @@ NaowhForever_Market/
   prices and order.
 - The price steps a copper, or a silver where `C_AuctionHouse.SupportsCopperValues()` is false, and is
   never under one step. Your own cheapest listing is matched, never undercut.
+- Only commodities take copper. Forever's `SupportsCopperValues()` is true, but posts from The Market,
+  which undercut by a copper, got "Internal auction error" while the same items posted from Blizzard's
+  sell frame, which prices in silver ("AH prices must be in silver increments"). So an item that is not
+  a commodity steps a silver and its price box has no copper.
+- Selling's Undercut sets how far under the cheapest listing that is not yours the price goes: a step
+  (Smallest Step, the default, as before), a silver (One Silver: 100 copper on a commodity, the same as a
+  step on an item) or nothing (Match the Cheapest). Up and Down step to the same distance under each
+  listing, and clicking a listing on Sell's ladder goes straight to its rung; one that is all yours is
+  matched. A price that lands on the cheapest listing, chosen or because a step under it would go under
+  one step, says it matches.
 - With no listings and no scan price, an item is priced as Blizzard's sell frame prices it: its
   vendor price times `DEFAULT_AUCTION_PRICE_MULTIPLIER`, rounded up to a silver.
 - An item is the vendor's when a vendor pays at least what it makes on the auction house after the 5%
@@ -169,11 +190,24 @@ NaowhForever_Market/
   opened on that character. Alts come from The Market's own list (`marketCharacters`), noted at login
   with The Market on, and only those on this realm and faction, who could be mailed the materials.
   A recipe two characters know is listed once, as yours.
-- A craft sells for its output's scan price after the cut, times what it makes. Its gain is that less
+- A craft sells for what its output fetches at its best outlet, times what it makes. Its gain is that less
   what its materials would fetch sold as they are (their auction price after the cut or their vendor
   price, whichever is more); its profit is that less what they cost to buy (`Shopping.BuyPrice`).
   Materials a vendor sells (`Shopping.VendorPrice`) count at their price and never limit how many your
-  bags make. Outputs with no scan price are left out.
+  bags make. Outputs with neither a scan price nor a disenchant value are left out.
+- An output has three outlets: the auction house (its scan price after the cut), disenchanting and a
+  vendor (its sell price). `Crafts.Outlet` takes the one that pays most. A vendor wins a tie with the
+  auction house, as on Sell; the auction house wins a tie with disenchanting, which is an average and
+  needs an enchanter.
+- Disenchanting is priced as the tooltip's Disenchant line is: Professions' `DisenchantValues` expected
+  value after the cut, for the equipment it takes, read only when Professions is loaded and a full price
+  list is there (`ns.AuctionPriceList`). It does not check anyone's Enchanting skill, as Disenchant
+  Deals' Profit does not by default.
+- A vendor price alone does not list a craft: every item has one, so every recipe would list before a
+  scan.
+- The Disenchant view lists the crafts best disenchanted, by profit, since a shuffle buys its
+  materials. The tooltip's Made by and Crafts into lines name the outlet when it is not the auction
+  house, so a profit from disenchanting is not read as a sale.
 - Each row's From Bags is what that recipe alone could make. The total on top shares your bags out:
   recipes are taken best gain a craft first, each using up the materials it makes from, so two
   recipes that need the same cloth never count it twice.
@@ -182,6 +216,9 @@ NaowhForever_Market/
 - Add to Queue goes to Professions' Craft Queue with `CraftQueue.AddWithShopping`, as its own Add does,
   only for your own recipes and while its Craft Queue is on. At an auctioneer, Buy opens the Buy page on
   the first material you are short of.
+- The Reagents page is Professions' own Reagents list (`P.ReagentList`), so both say the same; without
+  Professions loaded and on, it says to turn it on. It names an alt from The Market's list
+  (`marketCharacters`) when that alt is on this realm and faction.
 - Farm reads where herbs and veins grow from Glimmer's map (`ns.GlimmerSpots`, unpacked by
   `Glimmer.Spots.Load`, which waits out combat), its nodes (`Glimmer.NODES`) and the ones you gathered
   (`Glimmer.Spots.Gathered`); a node's item is Professions' (`GatherNodes`, by the node's English name,
@@ -247,16 +284,58 @@ NaowhForever_Market/
   level and suffix, so a piece of gear is searched as the one you starred. They are listed by name and
   drawn when Buy opens, when one is starred, and when a favourite's item data arrives
   (`GET_ITEM_INFO_RECEIVED`). The detail's name runs to the star when there is no price line to draw.
+- Saved searches are account-wide too (`marketSearches`), newest first, listed above the starred items
+  under Favourites. The star beside the search box saves the name in the box with the picked category,
+  and lights when that search is saved. A category is kept as its place in `AuctionCategories` ("3.2"),
+  the indices Blizzard's own `FindDeepestCategory` reads, so a saved search works on every client
+  language. The same name in another letter case with the same category is the same search. At most
+  `SEARCHES_KEEP` (10) are kept: saving another drops the oldest.
 - The tooltip lines are added at PLAYER_LOGIN, after QoL's Auction Price line, so they follow it.
   A stack's size is read from the bag slot the tooltip is over; elsewhere it counts one, and the line
   is left out. Disenchanting is priced with Professions' `DisenchantValues`, read only when Professions
   is loaded.
+- Tooltip Style's Compact keeps one line each for Auction, Vendor and Disenchant (when the item takes it),
+  and the verdict when Best Way to Sell is on: the three prices are what deciding where an item goes
+  takes. The price change, sales and craft lines stay Detailed's, and so does the header: the labels
+  name themselves, so a header would be a fourth line over three. Compact leaves out the price's age;
+  the Scan Prices button and the Auction Prices card say it. Detailed with its defaults draws exactly
+  what it drew before these settings.
+- Stack Prices reads a stack in your bags for each item, the whole stack, or both; away from your bags an
+  item counts one. Both is the old split: Auction Prices' line per item, The Market's Stack of N under
+  it. Each Item drops Stack of N; Whole Stack keeps it and Auction Prices leaves its line off on that
+  stack. Compact puts the two on one line ("10s each, 2g for 20") and a single item plain.
+- A price shows once: whenever The Market's lines carry the auction price (Compact, or Whole Stack on a
+  stack), `Market.ShowsPrice` tells QoL's Auction Prices to leave its own line off. QoL reads it only
+  when The Market is loaded, and it answers no until The Market's post-call is in, so Auction Prices
+  alone works as before. The Market keeps the choice since its lines are the ones that change, and the
+  settings stay on one card.
+- The Prices & Deals card gathers the auction house settings that live elsewhere: QoL's Auction Prices
+  rows and Professions' Disenchant Deals rows, each bound to its own module's store (`store =`), so
+  a change here is the same change there and both pages keep them. Its rows are built when the page
+  opens (`rows = PriceRows`): The Market loads before QoL and Professions, and a card's rows cannot
+  be shared, since each row keeps its card. Professions' rows show only while it is loaded.
+- Best Way to Sell weighs what each way puts in your bags, per item (`Worth.Best`): the auction price
+  after the 5% cut, the vendor price, and disenchanting's materials after the cut. A vendor wins a tie
+  with the auction house, as in Bag Worth, and the auction house a tie with disenchanting: the surer
+  gold first. Its line leads the block and says how much more the winner pays than the next way, for
+  the whole stack unless Stack Prices is Each Item.
+- Disenchanting counts only when Professions is loaded, the item takes it, and this character's
+  Enchanting can disenchant it now (`DisenchantDeals.MeetsSkill`): a way you cannot take is no advice, so
+  a character without Enchanting is told to sell even when the Disenchant line is higher. A bound item
+  (`isBound` on its bag slot) has no auction house.
+- A way that applies but has no price (no scan price for an item that can be auctioned, or a material
+  with none) makes the line read "Better:" and name only what it beat, never "Best:", as the unpriced
+  way could pay more. With fewer than two priced ways there is no line.
+- The Auction line shows the listing price, as the auction house and Auction Prices do; Disenchant and
+  the verdict count what you keep after the cut, so near a tie the verdict can pick a way whose line
+  reads a little lower than Auction's.
 
 ## Checking
 
 `lua5.1 Tools/regression/test-market-sell.lua` covers the queue, the prices and posting offline,
 `test-market-auctions.lua` My Auctions, `test-market-buy.lua` Buy, `test-market-worth.lua` the price
-history and Bag Worth, `test-market-crafts.lua` Crafts, `test-market-farm.lua` Farm,
+history, Bag Worth and Best Way to Sell's verdict, `test-market-tooltip.lua` the tooltip lines,
+`test-market-crafts.lua` Crafts, `test-market-farm.lua` Farm,
 `test-market-runs.lua` Last Run, `test-market-extras.lua` sales and favourites; all load the rules
 through
 `Tools/regression/market_world.lua`.
@@ -322,3 +401,35 @@ Away from the auction house:
 39. A big category (Armor, Trade Goods) lists more as you scroll to its end.
 40. Hovering a Buy result, a Shopping List row or a Favourite shows the item's tooltip, with Shift comparing
     gear to what you wear.
+41. Reagents, away from an auctioneer too: each reagent in your bags, with Craft beside the ones worth crafting; a click
+    opens every recipe it goes into, and an unlearned one's click sets a waypoint to where you learn it.
+42. Typing in Reagents' search finds any reagent by name, carried or not.
+43. A piece of gear on Sell, with someone else's listed, is priced a whole silver under theirs and its
+    price box has no copper; it posts without "Internal auction error". A commodity still steps a copper.
+44. Set Selling's Undercut to Match the Cheapest: Sell prices at the cheapest listing that is not yours and
+    says it matches it; Up and Down step between the listings' prices. One Silver puts a commodity a silver
+    under, and gear a silver under as before.
+45. On Sell, hovering a listing other than your post lights it; clicking it moves your price to that
+    listing's rung (where Up and Down would land) and your post onto the ladder beside it.
+46. With Professions on and a scan taken, each Crafts row shows Sell, Disenchant or Vendor under Sells
+    for. A green your characters craft that disenchants for more than it sells shows Disenchant, at its
+    tooltip's Disenchant line times what it makes, and sorts by that profit; the Disenchant tab lists
+    only those, and the green's tooltip reads "profit ... (Disenchant)".
+47. On Buy, type a name, pick a category and click the star beside the search box: the search shows at the
+    top of Favourites with its category, and the star lights. Clicking the row runs it again, name and
+    category included; its X, or the lit star, removes it. It is still there after /reload and on an alt.
+48. Tooltip Style on Compact: a stack of cloth in your bags shows Auction and Vendor, one line each, with
+    no The Market header and no Market Price line above them; a green adds Disenchant. Back on
+    Detailed, the tooltip is as it was.
+49. Stack Prices on the same stack: Each Item, Whole Stack and Both change Compact's Auction and Vendor
+    lines. On Detailed, Whole Stack shows Stack of N and no Market Price line, Each Item the Market Price
+    line and no Stack of N, and Both the two.
+50. Best Way to Sell on: the cloth reads Best: Auction (or Vendor, when a vendor pays more after the cut)
+    and by how much. A green reads Best: Disenchant on an enchanter who can disenchant it when its
+    materials fetch more, never on a character without Enchanting; an item with no scan price reads
+    Better: and names only what it beat.
+51. The Market's settings page has Prices & Deals: QoL's four Auction Prices rows and Professions'
+    Disenchant Deals rows (with Professions on). Turning one on there turns it on in QoL or Professions too.
+52. The Market's settings page has Key Binding: set a key there and it shows the same in the game's Key
+    Bindings menu (Open The Market). Away from an auctioneer the key opens The Market and a second press
+    closes it; at an auctioneer the second press closes the auction house too, as the window's X does.

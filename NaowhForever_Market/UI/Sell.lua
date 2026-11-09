@@ -65,6 +65,7 @@ local TEXT_DONE = ns.L("Everything is posted.")
 local TEXT_DONE_SUB = ns.L("%s listed this visit.")
 local REASONS = {
     under = ns.L("%s under the cheapest listing, %s."),
+    match = ns.L("Matches the cheapest listing, %s."),
     yours = ns.L("Yours is already the cheapest, at %s, so this matches it."),
     scan = ns.L("Nobody is selling this right now. Priced at your last scan, %s."),
     vendor = ns.L("Nobody is selling this and your scans have no price for it. Check the price before you post."),
@@ -136,9 +137,9 @@ local function Reason(entry, price, why, ref)
     return REASONS[why]:format(Coins(ref))
 end
 
-local function Fill(n, price, count, own, mine)
+local function Fill(n, price, count, own, mine, listing)
     local rung = Ladder.Rung(display, n)
-    rung.price, rung.count, rung.lit = price, count, mine
+    rung.price, rung.count, rung.lit, rung.pick = price, count, mine, listing
     rung.label = mine and TEXT_YOUR_POST or (own > 0 and TEXT_YOURS or nil)
 end
 
@@ -153,7 +154,7 @@ local function LadderRows(price, count)
         end
         if n >= LADDER_ROWS then break end
         n = n + 1
-        Fill(n, row.price, row.quantity, row.own, false)
+        Fill(n, row.price, row.quantity, row.own, false, i)
     end
     if not placed then
         n = math.min(n, LADDER_ROWS - 1) + 1
@@ -175,6 +176,7 @@ local function DrawLadder(entry, price, count)
 end
 
 local function DrawForm(entry, price)
+    money:ShowCopper(Sell.Copper(entry))
     if not money:HasFocus() then money:SetAmount(price) end
     if not quantity:HasFocus() then quantity:SetText(Sell.Quantity(entry)) end
     quantityOf:SetText(TEXT_OF:format(entry.count))
@@ -425,6 +427,13 @@ local function PriceDown()
     if entry and Sell.StepPrice(entry, false) then Page.Draw() end
 end
 
+local function ListingPicked(i)
+    local entry = Sell.Focus()
+    if not entry then return end
+    Sell.PriceAt(entry, i)
+    Page.Draw()
+end
+
 local function Posted(key, count, price, ok)
     if not ok then
         failed = true
@@ -484,7 +493,7 @@ local function BuildHead()
 end
 
 local function BuildLadder()
-    ladder = Ladder.New(content, TEXT_LADDER)
+    ladder = Ladder.New(content, TEXT_LADDER, ListingPicked)
     ladder:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 0, -SECTION_GAP)
     ladder:SetPoint("RIGHT")
 end
@@ -530,7 +539,7 @@ local function BuildForm()
     quantityOf:SetPoint("LEFT", quantity, "RIGHT", OF_GAP, 0)
     local items = {}
     for i, duration in ipairs(C.DURATIONS) do items[i] = { key = duration, label = C.DURATION_LABELS[duration] } end
-    durations = Parts.Tabs(form, DURATION_W, items, DurationPicked)
+    durations = Parts.Tabs(form, DURATION_W, items, DurationPicked, nil, nil, true)
     durations:SetPoint("BOTTOMRIGHT")
     local label = ns.Font(form, SMALL_SIZE, nil, T.muted)
     label:SetPoint("TOPLEFT", durations, "TOPLEFT", 0, FIELD_LABEL_H)
@@ -631,7 +640,6 @@ function Page.Show()
         Listings.onChange = Page.Draw
         Post.Start()
         for _, event in ipairs(EVENTS) do events:RegisterEvent(event) end
-        money:ShowCopper(C_AuctionHouse.SupportsCopperValues())
         loading = Sell.Read()
         Sell.Resume()
     end

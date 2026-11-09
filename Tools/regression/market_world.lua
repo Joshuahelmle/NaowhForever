@@ -20,7 +20,7 @@ local function Setup(opts)
         searches = {}, posts = {}, confirms = {}, loads = 0, timers = {}, hooks = {},
         owned = opts.owned or {}, keyInfo = opts.keyInfo or {}, queries = 0, cancels = {}, locked = {},
         browses = {}, browse = {}, more = 0, full = true, purchases = {}, bids = {}, money = opts.money or 1000000,
-        account = {}, char = {}, scanAt = opts.scanAt, counts = opts.counts or {} }
+        account = {}, char = {}, scanAt = opts.scanAt, counts = opts.counts or {}, info = opts.info or {} }
     local registry = {}
     local copper = opts.copper ~= false
     t.ready = true
@@ -87,6 +87,7 @@ local function Setup(opts)
             AuctionHouseSortOrder = { Price = 0, Name = 1, Buyout = 4, Bid = 3 },
             AuctionStatus = { Active = 0, Sold = 1 } },
         Constants = { AuctionConstants = { DEFAULT_AUCTION_PRICE_MULTIPLIER = 1.5 } },
+        C_CVar = { GetCVarDefault = function(name) return name == "auctionHouseDurationDropdown" and "2" or nil end },
         ItemLocation = { CreateEmpty = function() return Location() end,
             CreateFromBagAndSlot = function(_, bag, slot) return Location(bag, slot) end },
         C_Container = {
@@ -97,7 +98,9 @@ local function Setup(opts)
             GetItemInfo = function(link)
                 local id = tonumber(tostring(link):match("(%d+)"))
                 if not id then return end
-                return "Item " .. id, link, 1, 1, 1, "", "", 1, "", 0, t.vendor[id] or 0
+                local info = t.info[id] or {}
+                return "Item " .. id, link, info.quality or 1, info.level or 1, 1, "", "", 1, info.equip or "", 0,
+                    t.vendor[id] or 0, info.class
             end,
             GetItemID = function(loc) local s = Slot(loc) return s and s.itemID end,
             GetItemLink = function(loc) local s = Slot(loc) return s and s.hyperlink end,
@@ -193,6 +196,7 @@ local function Setup(opts)
     env._G = env
     env.NaowhForever = ns
     Load(FILES, env)
+    t.env = env
     t.M = ns.Market
     t.M.FISH_CATCHES, t.M.FISH_POOLS = {}, {}
     return t
